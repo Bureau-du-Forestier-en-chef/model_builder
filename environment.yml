@@ -1,0 +1,9 @@
+name: yields_builder
+dependencies:
+  - python=3.10
+  - xlrd
+  - openpyxl
+  - pandas
+  - pip:
+    options: --force-reinstall
+    - https://github.com/Bureau-du-Forestier-en-chef/FMT/releases/download/0.9.9/FMT-0.9.9-cp310-cp310-win_amd64.whl
