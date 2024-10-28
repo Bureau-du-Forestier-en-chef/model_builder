@@ -6,6 +6,11 @@ from pandas import DataFrame
 class Interpretor:
     m_MAX_AGE = 30
     m_MAX_PERIOD = 30
+    m_TIME_STEP = 5
+    def get_time_step()->int:
+        return Interpretor.m_TIME_STEP
+    def get_max_age()->int:
+        return Interpretor.m_MAX_AGE
     def __init__(self,p_primary:Path,p_scenario:str):
         modelParser = Parser.FMTmodelparser()
         modelParser.seterrorstowarnings([FMTexception.FMTexc.FMToutput_too_much_operator,
