@@ -14,6 +14,9 @@ class ModelParser:
 		self._set_to_warnings()
 		self.models = self.modelparser.readproject(self.path.as_posix(), self.scenario)
 		self.lpmodel = self._doplanning(length)
+		self.strategic = None
+		self.stocastic = None
+		self.tactic = None
 
 	def get_outputs(self, time: int, outputs: list[str]):
 		results = {}
@@ -48,7 +51,6 @@ class ModelParser:
 		for file in self.path.parent.iterdir():
 			if file.suffix == ext:
 				return file
-
 
 if __name__ == "__main__":
 	path = Path("T:/Donnees/02_Courant/07_Outil_moyen_methode/01_Entretien_developpement/Interne/FMT/Entretien/Modeles_test/02661/PC_9307_U02661_4_Vg2_2023_vRP1f.pri")
