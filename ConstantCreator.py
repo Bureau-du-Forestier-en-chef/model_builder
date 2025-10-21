@@ -36,7 +36,7 @@ class ConstantCreator(ModelParser):
         return output_name
     
     def create_constant_file(self, output_path=None):
-        output_dict = self.get_outputs(0, self.output_dict)
+        output_dict = self.get_outputs_results(0, self.output_dict)
 
         if output_path:
             base_path = Path(output_path)
