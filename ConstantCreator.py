@@ -73,4 +73,4 @@ class ConstantCreator(ModelParser):
 if __name__ == "__main__":
     path = Path("T:\\Donnees\\02_Courant\\07_Outil_moyen_methode\\01_Entretien_developpement\\Interne\\FMT\\Entretien\\Modeles_test\\02661\\PC_9307_U02661_4_Vg2_2023_vRP1f.pri")
     parser = ConstantCreator(path, ["14_Sc5_Determin_apsp"], 1)
-    parser.create_constant_file(output_path= "C:/Users/Admlocal/Documents/SCRAP")
+    parser.create_constant_file(output_path="C:/Users/Admlocal/Documents/SCRAP")
