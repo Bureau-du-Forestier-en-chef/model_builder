@@ -311,7 +311,7 @@ class ModelParser:
 if __name__ == "__main__":
 	path = Path("C:\\Users\\Admlocal\\Documents\\issues\\C2_00985788\\CC_modele_feu\\WS_CC\\Feux_2023_ouest_V01.pri")
 	scenarios = ["strategique_CC", "stochastique_vide", "tactique_CC"]
-	model = ModelParser(path, scenarios, 5)
+	model = ModelParser(path, scenarios, 20)
 	output_results = model.get_outputs_results(1, ["OVOLTOTREC"])
 	
 	results = model.find_max_value(output_results, threads=5)
