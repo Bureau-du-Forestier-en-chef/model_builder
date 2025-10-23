@@ -7,9 +7,11 @@ from FMT import (
 )
 from pathlib import Path
 import shutil
+from Logger import Logging
 
 class ModelParser:
 	def __init__(self, path: Path, scenarios: list[str], length: int):
+		self.Logging = Logging(path.stem + ".log")
 		self.path = path
 		self.scenarios = scenarios
 		self.length = length
@@ -23,6 +25,7 @@ class ModelParser:
 
 	def get_outputs_results(self, time: int, outputs: list[str]):
 		if time < 0 or time > self.length:
+			self.Logging.log_message("ERROR", f"Time {time} is out of bounds (0-{self.length})")
 			raise ValueError(f"Time must be between 0 and {self.length}")
 		results = {}
 		output_objects = self._get_outputs_objects(outputs)
@@ -51,6 +54,7 @@ class ModelParser:
 	
 	def _doplanning(self, length: int):
 		if length < 1:
+			self.Logging.log_message("ERROR", "Length must be greater than 1")
 			raise ValueError("Time must be greater than 1")
 		
 		lpmodel = Models.FMTlpmodel(self.models[0], Models.FMTsolverinterface.MOSEK) # CLP ou MOSEK
@@ -67,6 +71,7 @@ class ModelParser:
 	
 	def create_replanning_models(self) -> tuple[Models.FMTlpmodel, Models.FMTnssmodel, Models.FMTlpmodel]:
 		if len(self.models) < 3:
+			self.Logging.log_message("ERROR", "3 Models are required for replanning")
 			raise Exception("3 Models are required for replanning")
 		
 		strategic = Models.FMTlpmodel(self.models[0], Models.FMTsolverinterface.MOSEK)
@@ -120,6 +125,7 @@ class ModelParser:
 		self._clear_folder(output_location)
 
 		if length < 1:
+			self.Logging.log_message("ERROR", "Length must be greater than 1")
 			raise ValueError("Time must be greater than 1")
 		
 		strategic.setparameter(Models.FMTintmodelparameters.LENGTH, length)
@@ -150,7 +156,8 @@ class ModelParser:
 			else:
 				handler.conccurentrun()
 		except FMTexception.FMTexception as e:
-			print("An error occurred during replanning:", e)
+			self.Logging.log_message("ERROR", f"Replanning failed: {str(e)}")
+			raise RuntimeError(f"Replanning failed: {str(e)}")
 
 	def _clear_folder(self, folder_path: str | Path):
 		folder = Path(folder_path)
@@ -192,11 +199,12 @@ class ModelParser:
 			threads: int = 1):
 		
 		factor_min = 0
-		factor_max = 1
+		factor_max = 100
+		iterations = 0
 
-		while (factor_max - factor_min) > 1:
+		while (factor_max - factor_min) > 1 and iterations <= 8:
 
-			factor_tested = ((factor_min + factor_max) * 100 // 2) / 100
+			factor_tested = ((factor_min + factor_max) // 2) / 100
 			
 			new_constraint = Core.FMTconstraint(
 				Core.FMTconstrainttype.FMTstandard, 
@@ -220,7 +228,11 @@ class ModelParser:
 				
 			except RuntimeError as e:
 				if "FMTexc(53)Function failed: Infeasible Global model"	in str(e):
-					factor_max = factor_tested
+					factor_max = factor_tested * 100
+					self.Logging.log_message("INFO", 
+							(f"Iteration {iterations}: Infeasible model for factor {factor_tested:.2f}. "
+							f"Reducing max factor to {factor_max / 100:.2f}.")
+						)
 				else:
 					raise e
 
@@ -230,15 +242,28 @@ class ModelParser:
 						key, 
 						value * factor_tested, 
 						workspace):
-					factor_max = factor_tested
+					factor_max = factor_tested * 100
+					self.Logging.log_message("INFO", 
+							(f"Iteration {iterations}: Output value not met for factor "
+							f"{factor_tested:.2f}. Reducing max factor to {factor_max / 100:.2f}.")
+						)
 				else:
-					factor_min = factor_tested
+					factor_min = factor_tested * 100
+					self.Logging.log_message("INFO", 
+							(f"Iteration {iterations}: Output value met for factor " 
+							f"{factor_tested:.2f}. Increasing min factor to {factor_min / 100:.2f}.")
+						)
 
 			finally:
 				constraints.remove(new_constraint)
 				strategic.setconstraints(constraints)
+				iterations += 1
+				self.Logging.log_message("INFO", 
+						(f"End of iteration {iterations} with factor range: "
+						f"{factor_min / 100:.2f} - {factor_max / 100:.2f}.")
+					)
 		
-		return factor_min
+		return factor_min / 100
 
 	def _change_area(self, model, key: str):
 		area_to_keep = []
@@ -272,6 +297,9 @@ class ModelParser:
 					workspace,
 					threads)
 				
+				self.Logging.log_message("INFO", 
+						f"Best factor found for output {output} and key {key} is {best_factor:.4f}.")
+
 				if output not in final_values:
 					final_values[output] = {key: best_factor}
 				else:
