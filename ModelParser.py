@@ -185,6 +185,9 @@ class ModelParser:
 			if line_splited[2] == output_name and line_splited[3].strip('"') == id_type:
 				if float(line_splited[-1]) < value:
 					is_valid = False
+					self.Logging.log_message("INFO", 
+							(f"Output {output_name} for id {id_type} has value {line_splited[-1]}, "
+							f"which is less than the required value {value}."))
 					break 
 		return is_valid
 	
@@ -196,10 +199,18 @@ class ModelParser:
 			key: str,
 			value: float,
 			workspace: str,
-			threads: int = 1):
+			threads: int = 1,
+			known_values: dict | None = None) -> float:
 		
 		factor_min = 0
 		factor_max = 100
+		
+		if known_values and output in known_values and key in known_values[output]:
+			factor_min = int(known_values[output][key]['min'] * 100)
+			factor_max = int(known_values[output][key]['max'] * 100)
+			self.Logging.log_message("INFO", 
+					(f"Using known factor {known_values[output][key]} for output {output} and key {key}."))
+	
 		iterations = 0
 
 		while (factor_max - factor_min) > 1 and iterations <= 8:
@@ -272,7 +283,11 @@ class ModelParser:
 				area_to_keep.append(area)
 		model.setarea(area_to_keep)
 
-	def find_max_value(self, output_results: dict, workspace: str = "C:/Users/Admlocal/Documents/SCRAP1", threads: int = 1):
+	def find_max_value(self, 
+			output_results: dict,
+			workspace: str = "C:/Users/Admlocal/Documents/SCRAP1", 
+			threads: int = 1, 
+			known_values: dict | None = None) -> dict:
 		if len(self.models) < 3:
 			raise Exception("Models for strategic, stochastic and tactic are required")
 		
@@ -281,7 +296,10 @@ class ModelParser:
 			for key, value in results.items():
 				if value == 0:
 					continue
-			
+
+				self.Logging.log_message("INFO", 
+						f"Finding max factor for output {output} with target value {value} for key {key}.")
+
 				strategic, stochastic, tactic = self.create_replanning_models()
 
 				for model in [strategic, stochastic, tactic]:
@@ -295,10 +313,11 @@ class ModelParser:
 					key,
 					value,
 					workspace,
-					threads)
+					threads, 
+					known_values)
 				
 				self.Logging.log_message("INFO", 
-						f"Best factor found for output {output} and key {key} is {best_factor:.4f}.")
+						f"Best factor found for output {output} and key {key} is {best_factor:.2f}.")
 
 				if output not in final_values:
 					final_values[output] = {key: best_factor}
@@ -314,5 +333,12 @@ if __name__ == "__main__":
 	model = ModelParser(path, scenarios, 20)
 	output_results = model.get_outputs_results(1, ["OVOLTOTREC"])
 	
-	results = model.find_max_value(output_results, threads=5)
+	# Exemple de known_values à passer à find_max_value
+	known_values = {
+		"OVOLTOTREC": {
+			"08351": {"min": 0.12, "max": 0.18}
+		}
+	}
+
+	results = model.find_max_value(output_results, threads=5, known_values=known_values)
 	print(results)
