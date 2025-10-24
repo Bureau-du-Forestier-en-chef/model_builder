@@ -8,6 +8,8 @@ from FMT import (
 from pathlib import Path
 import shutil
 from Logger import Logging
+from LiveMonitoring import LiveCSVMonitor, MonitoredReplanningAbort
+import multiprocessing as mp
 
 class ModelParser:
 	def __init__(self, path: Path, scenarios: list[str], length: int):
@@ -176,20 +178,25 @@ class ModelParser:
 			except Exception as e:
 				raise e
 	
-	def _inspect_csv(self, output_name: str, id_type: str, value: float, field_path: str | Path) -> bool:
+	def _inspect_csv(self, output_name: str, id_type: str, value: float, field_path: str | Path) -> tuple[bool, str]:
 		field_file = Path(field_path) / f"{self.scenarios[2]}.csv"
 		is_valid = True
+		TOLERANCE = 1
+		msg = "Output value meets the required threshold at this time."
+
+		if not field_file.exists():
+			raise FileNotFoundError(f"Field file not found: {field_file}")
 
 		for line in field_file.read_text().splitlines():
 			line_splited = line.strip().split(";")
 			if line_splited[2] == output_name and line_splited[3].strip('"') == id_type:
-				if float(line_splited[-1]) < value:
+				# J'ai ajouté +1 pour éviter les problèmes d'arrondi flottant
+				if float(line_splited[-1]) + TOLERANCE < value:
 					is_valid = False
-					self.Logging.log_message("INFO", 
-							(f"Output {output_name} for id {id_type} has value {line_splited[-1]}, "
-							f"which is less than the required value {value}."))
+					msg = (f"Output {output_name} for id {id_type} has value {line_splited[-1]}, "
+							f"which is less than the required value {value}.")
 					break 
-		return is_valid
+		return is_valid, msg
 	
 	def _find_factor(self, 
 			strategic: Models.FMTlpmodel,
@@ -210,13 +217,22 @@ class ModelParser:
 			factor_max = int(known_values[output][key]['max'] * 100)
 			self.Logging.log_message("INFO", 
 					(f"Using known factor {known_values[output][key]} for output {output} and key {key}."))
-	
+
 		iterations = 0
 
 		while (factor_max - factor_min) > 1 and iterations <= 8:
-
 			factor_tested = ((factor_min + factor_max) // 2) / 100
 			
+			#monitor = LiveCSVMonitor(
+			#	csv_path=Path(workspace) / f"{self.scenarios[2]}.csv",
+			#	check_function=lambda: self._inspect_csv(
+			#		output_name=output,
+			#		id_type=key,
+			#		value=value * factor_tested,
+			#		field_path=workspace),
+			#	logger=self.path.stem + ".log")
+			#monitor.start()
+
 			new_constraint = Core.FMTconstraint(
 				Core.FMTconstrainttype.FMTstandard, 
 				self._get_outputs_objects([output])[0])
@@ -237,6 +253,13 @@ class ModelParser:
 					replicates=1,
 					threads=threads)
 				
+			except MonitoredReplanningAbort as abort_error:
+				factor_max = factor_tested * 100
+				self.Logging.log_message("WARNING", 
+							(f"Stopping factor search due to monitoring abort: {abort_error}. "
+							f"Reducing max factor to {factor_max / 100:.2f}.")
+						)
+				
 			except RuntimeError as e:
 				if "FMTexc(53)Function failed: Infeasible Global model"	in str(e):
 					factor_max = factor_tested * 100
@@ -248,16 +271,10 @@ class ModelParser:
 					raise e
 
 			else:
-				if not self._inspect_csv(
-						output, 
-						key, 
-						value * factor_tested, 
-						workspace):
+				is_valid, msg = self._inspect_csv(output, key, value * factor_tested, workspace)
+				if not is_valid and msg:
 					factor_max = factor_tested * 100
-					self.Logging.log_message("INFO", 
-							(f"Iteration {iterations}: Output value not met for factor "
-							f"{factor_tested:.2f}. Reducing max factor to {factor_max / 100:.2f}.")
-						)
+					self.Logging.log_message("INFO", msg)
 				else:
 					factor_min = factor_tested * 100
 					self.Logging.log_message("INFO", 
@@ -273,6 +290,7 @@ class ModelParser:
 						(f"End of iteration {iterations} with factor range: "
 						f"{factor_min / 100:.2f} - {factor_max / 100:.2f}.")
 					)
+				#monitor.stop()	
 		
 		return factor_min / 100
 
@@ -334,11 +352,11 @@ if __name__ == "__main__":
 	output_results = model.get_outputs_results(1, ["OVOLTOTREC"])
 	
 	# Exemple de known_values à passer à find_max_value
-	known_values = {
-		"OVOLTOTREC": {
-			"08351": {"min": 0.12, "max": 0.18}
-		}
-	}
+	#known_values = {
+	#	"OVOLTOTREC": {
+	#		"08351": {"min": 0.12, "max": 0.18}
+	#	}
+	#}
 
-	results = model.find_max_value(output_results, threads=5, known_values=known_values)
+	results = model.find_max_value(output_results, threads=5)
 	print(results)
