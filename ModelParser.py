@@ -183,19 +183,25 @@ class ModelParser:
 		is_valid = True
 		TOLERANCE = 1
 		msg = "Output value meets the required threshold at this time."
-
+		max_period = 0
+		
 		if not field_file.exists():
 			raise FileNotFoundError(f"Field file not found: {field_file}")
 
 		for line in field_file.read_text().splitlines():
 			line_splited = line.strip().split(";")
 			if line_splited[2] == output_name and line_splited[3].strip('"') == id_type:
+				max_period = max(max_period, int(line_splited[1]))
 				# J'ai ajouté +1 pour éviter les problèmes d'arrondi flottant
-				if float(line_splited[-1]) + TOLERANCE < value:
+				if float(line_splited[-1]) + TOLERANCE < value and is_valid:
 					is_valid = False
 					msg = (f"Output {output_name} for id {id_type} has value {line_splited[-1]}, "
-							f"which is less than the required value {value}.")
-					break 
+							f"which is less than the required value {value}. "
+							f"At period {line_splited[1]} / ")
+		
+		if not is_valid:
+			msg += f"{max_period}"
+				 
 		return is_valid, msg
 	
 	def _find_factor(self, 
@@ -210,7 +216,7 @@ class ModelParser:
 			known_values: dict | None = None) -> float:
 		
 		factor_min = 0
-		factor_max = 100
+		factor_max = 101 # À 101 pour inclure 1.0 dans la recherche = [min, max[
 		
 		if known_values and output in known_values and key in known_values[output]:
 			factor_min = int(known_values[output][key]['min'] * 100)
@@ -222,6 +228,11 @@ class ModelParser:
 
 		while (factor_max - factor_min) > 1 and iterations <= 8:
 			factor_tested = ((factor_min + factor_max) // 2) / 100
+
+			self.Logging.log_message("INFO",
+					(f"Iteration {iterations}: Testing factor {factor_tested:.2f} "
+					f"for constraint value of {value * factor_tested:.2f}.")
+				)
 			
 			#monitor = LiveCSVMonitor(
 			#	csv_path=Path(workspace) / f"{self.scenarios[2]}.csv",
@@ -312,7 +323,7 @@ class ModelParser:
 		final_values = {}
 		for output, results in output_results.items():
 			for key, value in results.items():
-				if value == 0:
+				if key in ["NA", "Total"] or value == 0:
 					continue
 
 				self.Logging.log_message("INFO", 
@@ -352,11 +363,12 @@ if __name__ == "__main__":
 	output_results = model.get_outputs_results(1, ["OVOLTOTREC"])
 	
 	# Exemple de known_values à passer à find_max_value
-	#known_values = {
-	#	"OVOLTOTREC": {
-	#		"08351": {"min": 0.12, "max": 0.18}
-	#	}
-	#}
+	known_values = {
+		"OVOLTOTREC": {
+			"08351": {"min": 0.98, "max": 1.01},
+			"08451": {"min": 0.7, "max": 0.85}
+		}
+	}
 
-	results = model.find_max_value(output_results, threads=5)
+	results = model.find_max_value(output_results, threads=5, known_values=known_values)
 	print(results)
