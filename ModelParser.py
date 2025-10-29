@@ -8,8 +8,7 @@ from FMT import (
 from pathlib import Path
 import shutil
 from Logger import Logging
-from LiveMonitoring import LiveCSVMonitor, MonitoredReplanningAbort
-import multiprocessing as mp
+from contextlib import contextmanager
 
 class ModelParser:
 	def __init__(self, path: Path, scenarios: list[str], length: int):
@@ -54,11 +53,11 @@ class ModelParser:
 			FMTexception.FMTexc.FMTinvalidyield_number,
 			FMTexception.FMTexc.FMTundefinedoutput_attribute])
 	
-	def _doplanning(self, length: int):
+	def _doplanning(self, length: int) -> Models.FMTlpmodel:
 		if length < 1:
 			self.Logging.log_message("ERROR", "Length must be greater than 1")
 			raise ValueError("Time must be greater than 1")
-		
+
 		lpmodel = Models.FMTlpmodel(self.models[0], Models.FMTsolverinterface.MOSEK) # CLP ou MOSEK
 		lpmodel.setparameter(Models.FMTintmodelparameters.LENGTH, length)
 		lpmodel.setparameter(Models.FMTboolmodelparameters.FORCE_PARTIAL_BUILD, True)
@@ -109,13 +108,18 @@ class ModelParser:
 			write_schedule)
 		
 		return replanning_task
+	
+	def _create_workspace_folder(self, base_path: str | Path):
+		base_folder = Path(base_path)
+		if not base_folder.exists():
+			base_folder.mkdir(parents=True, exist_ok=True)
 
 	def replanning(self,
 			strategic: Models.FMTlpmodel,
 			stochastic: Models.FMTnssmodel,
 			tactic: Models.FMTlpmodel,
 			selected_outputs: list[str], 
-			output_location: str, 
+			output_location: Path, 
 			length: int,
 			replicates: int,
 			threads: int = 1,
@@ -124,7 +128,11 @@ class ModelParser:
 			write_schedule = True,
 			ondemandrun: bool = True):
 		
-		self._clear_folder(output_location)
+		output_location = output_location / "output"
+
+		if output_location.exists():
+			self._clear_folder(output_location)
+		self._create_workspace_folder(output_location)
 
 		if length < 1:
 			self.Logging.log_message("ERROR", "Length must be greater than 1")
@@ -141,7 +149,7 @@ class ModelParser:
 			stochastic,
 			tactic,
 			selected_outputs,
-			output_location,
+			output_location.as_posix(),
 			length,
 			replicates,
 			drift,
@@ -211,7 +219,7 @@ class ModelParser:
 			output: str,
 			key: str,
 			value: float,
-			workspace: str,
+			workspace: Path,
 			threads: int = 1,
 			known_values: dict | None = None) -> float:
 		
@@ -228,21 +236,15 @@ class ModelParser:
 
 		while (factor_max - factor_min) > 1 and iterations <= 8:
 			factor_tested = ((factor_min + factor_max) // 2) / 100
+			
+			workspace_id = workspace / f"{output}_{key}_{factor_tested}"
+			self._create_workspace_folder(workspace_id)
+			self.modelparser.redirectlogtofile(workspace_id.as_posix() + "/output.log")
 
 			self.Logging.log_message("INFO",
 					(f"Iteration {iterations}: Testing factor {factor_tested:.2f} "
 					f"for constraint value of {value * factor_tested:.2f}.")
 				)
-			
-			#monitor = LiveCSVMonitor(
-			#	csv_path=Path(workspace) / f"{self.scenarios[2]}.csv",
-			#	check_function=lambda: self._inspect_csv(
-			#		output_name=output,
-			#		id_type=key,
-			#		value=value * factor_tested,
-			#		field_path=workspace),
-			#	logger=self.path.stem + ".log")
-			#monitor.start()
 
 			new_constraint = Core.FMTconstraint(
 				Core.FMTconstrainttype.FMTstandard, 
@@ -259,17 +261,10 @@ class ModelParser:
 					stochastic,
 					tactic,
 					[output],
-					workspace,
+					workspace_id,
 					length=self.length,
 					replicates=1,
 					threads=threads)
-				
-			except MonitoredReplanningAbort as abort_error:
-				factor_max = factor_tested * 100
-				self.Logging.log_message("WARNING", 
-							(f"Stopping factor search due to monitoring abort: {abort_error}. "
-							f"Reducing max factor to {factor_max / 100:.2f}.")
-						)
 				
 			except RuntimeError as e:
 				if "FMTexc(53)Function failed: Infeasible Global model"	in str(e):
@@ -301,25 +296,20 @@ class ModelParser:
 						(f"End of iteration {iterations} with factor range: "
 						f"{factor_min / 100:.2f} - {factor_max / 100:.2f}.")
 					)
-				#monitor.stop()	
 		
 		return factor_min / 100
 
-	def _change_area(self, model, key: str):
-		area_to_keep = []
-		for area in model.getarea():
-			if key in str(area):
-				area_to_keep.append(area)
-		model.setarea(area_to_keep)
 
 	def find_max_value(self, 
-			output_results: dict,
-			workspace: str = "C:/Users/Admlocal/Documents/SCRAP1", 
+			output_list: list[str],
+			workspace: str, 
 			threads: int = 1, 
 			known_values: dict | None = None) -> dict:
 		if len(self.models) < 3:
 			raise Exception("Models for strategic, stochastic and tactic are required")
 		
+		output_results = self.get_outputs_results(1, output_list)
+
 		final_values = {}
 		for output, results in output_results.items():
 			for key, value in results.items():
@@ -341,7 +331,7 @@ class ModelParser:
 					output,
 					key,
 					value,
-					workspace,
+					Path(workspace),
 					threads, 
 					known_values)
 				
@@ -353,22 +343,141 @@ class ModelParser:
 				else:
 					final_values[output][key] = best_factor
 	
-		return final_values		
+		return final_values
+	
+	
+	def _change_area(self, model, key: str):
+		area_to_keep = []
+		for area in model.getarea():
+			if key in str(area):
+				area_to_keep.append(area)
+		self.Logging.log_message("INFO", 
+			f"Keeping {len(area_to_keep)} / {len(model.getarea())} area for key {key}.")
+		model.setarea(area_to_keep)
+
+	def _get_constraints_values_in_dict(self,
+			dict_values: dict,
+			type_id: str):
+		to_keep = {}
+		for output in dict_values:
+			for key in dict_values[output]:
+				if key == type_id:
+					to_keep[output] = dict_values[output][key]
+		
+		return to_keep
+
+	def find_combined_max_values(self, 
+			output_list: list[str], 
+			workspace: str,
+			threads: int = 1, 
+			known_values: dict | None = None) -> tuple[dict, dict]:
+		if len(self.models) < 3:
+			raise Exception("Models for strategic, stochastic and tactic are required")
+		
+		self._clear_folder(workspace)
+
+		output_results = self.get_outputs_results(1, output_list)
+		
+		final_values = {}
+		iteration = 0
+		for output in output_list:
+			self.Logging.log_message("INFO",  f"Iterating over {output}")
+			for key, value in output_results[output].items():
+				if key in ["NA", "Total"] or value == 0:
+					continue
+			
+				self.modelparser.redirectlogtofile(workspace + "/output.log")
+				strategic, stochastic, tactic = self.create_replanning_models()	
+
+				constraints_added = []
+				if iteration > 0:
+					# On ajoute les contraintes de l'itération précédente
+					existing_constraints = self._get_constraints_values_in_dict(final_values, key)
+					for output_constraint, result in existing_constraints.items():
+						new_value = result['value'] * result['factor']
+						new_constraint = Core.FMTconstraint(
+							Core.FMTconstrainttype.FMTstandard, 
+							self._get_outputs_objects([output_constraint])[0])
+						new_constraint.setlength(1, self.length)
+						new_constraint.setrhs(new_value * 0.5, new_value)
+						
+						constraints_added.append(new_constraint)
+		
+						constraints = strategic.getconstraints() 
+						constraints.append(new_constraint)
+						strategic.setconstraints(constraints)
+					self.Logging.log_message("INFO",
+						f"Added {len(constraints_added)} constraints for a total of "
+						f"{len(constraints)} based on previous iteration results for key {key}.") # type: ignore
+
+					# On réajuste la valeur des outputs
+					lpmodel = Models.FMTlpmodel(self.models[0], Models.FMTsolverinterface.MOSEK)
+					lpmodel.setparameter(Models.FMTintmodelparameters.LENGTH, self.length)
+					lpmodel.setparameter(Models.FMTboolmodelparameters.FORCE_PARTIAL_BUILD, True)
+					
+					constraints = lpmodel.getconstraints()
+					constraints.extend(constraints_added) 
+					lpmodel.setconstraints(constraints)
+
+					lpmodel.doplanning(True)
+					output_object = self._get_outputs_objects([output])[0]
+					new_output_to_acheive = lpmodel.getoutput(output_object, 1, Core.FMToutputlevel.standard)
+					self.Logging.log_message("INFO",
+						f"Setting new target value for output {output}. Difference of "
+						f"{output_results[output][key] - new_output_to_acheive[key]} "	
+						f"based on previous iteration results.")		
+					output_results[output] = new_output_to_acheive
+
+
+				self.Logging.log_message("INFO", 
+						f"Finding max factor for target value {value} for key {key}.")
+
+				for model in [strategic, stochastic, tactic]:
+					self._change_area(model, key)
+
+				best_factor = self._find_factor(
+					strategic,
+					stochastic,
+					tactic,
+					output,
+					key,
+					value,
+					Path(workspace),
+					threads, 
+					known_values)
+				
+				if iteration > 0:
+					for const in constraints_added:
+						constraints.remove(const)
+					strategic.setconstraints(constraints)
+
+				self.Logging.log_message("INFO", 
+						f"Best factor found for output {output} and key {key} is {best_factor:.2f}.")
+
+				if output not in final_values:
+					final_values[output] = {key: {'value': value, 'factor': best_factor}}
+				else:
+					final_values[output][key] = {'value': value, 'factor': best_factor}
+			iteration += 1
+	
+		return final_values, output_results
 
 
 if __name__ == "__main__":
 	path = Path("C:\\Users\\Admlocal\\Documents\\issues\\C2_00985788\\CC_modele_feu\\WS_CC\\Feux_2023_ouest_V01.pri")
 	scenarios = ["strategique_CC", "stochastique_vide", "tactique_CC"]
 	model = ModelParser(path, scenarios, 20)
-	output_results = model.get_outputs_results(1, ["OVOLTOTREC"])
-	
+
+	# OVOLGRREC, OVOLGFREC 
+
 	# Exemple de known_values à passer à find_max_value
 	known_values = {
 		"OVOLTOTREC": {
-			"08351": {"min": 0.98, "max": 1.01},
-			"08451": {"min": 0.7, "max": 0.85}
+			"08351": {"min": 1, "max": 1.01},
+			"08451": {"min": 0.75, "max": 0.76},
+			"08462": {"min": 0.8, "max": 0.81}
 		}
 	}
 
-	results = model.find_max_value(output_results, threads=5, known_values=known_values)
-	print(results)
+	#test1 = model.find_max_value(["OVOLGRREC"], "C:/Users/Admlocal/Documents/SCRAP1", threads=5)
+	results = model.find_combined_max_values(["OVOLTOTREC", "OVOLGRREC", "OVOLGFREC"], "C:/Users/Admlocal/Documents/SCRAP1",  threads=5, known_values=known_values)
