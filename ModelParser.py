@@ -250,8 +250,8 @@ class ModelParser:
 				Core.FMTconstrainttype.FMTstandard, 
 				self._get_outputs_objects([output])[0])
 			new_constraint.setlength(1, self.length)
-			new_constraint.setrhs(value * factor_tested, value * factor_tested)
-			constraints = strategic.getconstraints() 
+			new_constraint.setrhs(0, value * factor_tested)
+			constraints = strategic.getconstraints()      
 			constraints.append(new_constraint)
 			strategic.setconstraints(constraints)
 
@@ -277,7 +277,7 @@ class ModelParser:
 					raise e
 
 			else:
-				is_valid, msg = self._inspect_csv(output, key, value * factor_tested, workspace)
+				is_valid, msg = self._inspect_csv(output, key, value * factor_tested, workspace_id / "output")
 				if not is_valid and msg:
 					factor_max = factor_tested * 100
 					self.Logging.log_message("INFO", msg)
@@ -399,10 +399,8 @@ class ModelParser:
 							Core.FMTconstrainttype.FMTstandard, 
 							self._get_outputs_objects([output_constraint])[0])
 						new_constraint.setlength(1, self.length)
-						new_constraint.setrhs(new_value * 0.5, new_value)
-						
+						new_constraint.setrhs(0, new_value)
 						constraints_added.append(new_constraint)
-		
 						constraints = strategic.getconstraints() 
 						constraints.append(new_constraint)
 						strategic.setconstraints(constraints)
@@ -461,6 +459,89 @@ class ModelParser:
 			iteration += 1
 	
 		return final_values, output_results
+	
+
+	def find_max_values_with_obj(self, 
+				output_list: list[str], 
+				workspace: str,
+				threads: int = 1, 
+				known_values: dict | None = None) -> tuple[dict, dict]:
+		if len(self.models) < 3:
+			raise Exception("Models for strategic, stochastic and tactic are required")
+		
+		self._clear_folder(workspace)
+
+		output_results = self.get_outputs_results(1, output_list)
+		
+		final_values = {}
+
+		for output in output_list:
+			self.Logging.log_message("INFO",  f"Iterating over {output}")
+			self.modelparser.redirectlogtofile(workspace + "/output.log")
+			output_object = self._get_outputs_objects([output])[0]
+			
+			# Nouvelle fonction objective
+			new_objective = Core.FMTconstraint(
+				Core.FMTconstrainttype.FMTMAXMINobjective, 
+				output_object)
+			new_objective.setlength(1, self.length)
+
+			# On réajuste la valeur des outputs
+			lpmodel = Models.FMTlpmodel(self.models[0], Models.FMTsolverinterface.MOSEK)
+			lpmodel.setparameter(Models.FMTintmodelparameters.LENGTH, self.length)
+			lpmodel.setparameter(Models.FMTboolmodelparameters.FORCE_PARTIAL_BUILD, True)
+			lp_constraints = lpmodel.getconstraints()
+			lp_constraints[0] = new_objective
+			lpmodel.setconstraints(lp_constraints)
+			lpmodel.doplanning(True)
+			
+			new_output_to_acheive = lpmodel.getoutput(output_object, 1, Core.FMToutputlevel.standard)
+
+			for key, value in new_output_to_acheive.items():
+				if key in ["NA", "Total"] or value == 0:
+					continue
+			
+				self.modelparser.redirectlogtofile(workspace + "/output.log")
+				strategic, stochastic, tactic = self.create_replanning_models()	
+
+				self.Logging.log_message("INFO",
+					f"Setting new target value for output {output}. Difference of "
+					f"{output_results[output][key] - new_output_to_acheive[key]} "	
+					f"based on previous iteration results.")		
+				output_results[output] = new_output_to_acheive
+
+				# On ajoute la nouvelle fonction objective au modèle stratégique
+				constraints = strategic.getconstraints()
+				constraints[0] = new_objective
+				strategic.setconstraints(constraints)
+
+				self.Logging.log_message("INFO", 
+						f"Finding max factor for target value {value} for key {key}.")
+
+				for model in [strategic, stochastic, tactic]:
+					self._change_area(model, key)
+
+				best_factor = self._find_factor(
+					strategic,
+					stochastic,
+					tactic,
+					output,
+					key,
+					value,
+					Path(workspace),
+					threads, 
+					known_values)
+
+				self.Logging.log_message("INFO", 
+						f"Best factor found for output {output} and key {key} is {best_factor:.2f}.")
+
+				if output not in final_values:
+					final_values[output] = {key: {'value': value, 'factor': best_factor}}
+				else:
+					final_values[output][key] = {'value': value, 'factor': best_factor}
+	
+		return final_values, output_results
+
 
 
 if __name__ == "__main__":
@@ -476,8 +557,11 @@ if __name__ == "__main__":
 			"08351": {"min": 1, "max": 1.01},
 			"08451": {"min": 0.75, "max": 0.76},
 			"08462": {"min": 0.8, "max": 0.81}
+		},
+		"OVOLGRREC": {
+			"08351": {"min": 0.5, "max": 1.01}
 		}
 	}
 
-	#test1 = model.find_max_value(["OVOLGRREC"], "C:/Users/Admlocal/Documents/SCRAP1", threads=5)
-	results = model.find_combined_max_values(["OVOLTOTREC", "OVOLGRREC", "OVOLGFREC"], "C:/Users/Admlocal/Documents/SCRAP1",  threads=5, known_values=known_values)
+	#test = model.find_max_value(["OVOLGRREC", "OVOLGFREC"], "C:/Users/Admlocal/Documents/SCRAP1", threads=5)
+	results = model.find_max_values_with_obj(["OVOLTOTREC", "OVOLGRREC", "OVOLGFREC"], "C:/Users/Admlocal/Documents/SCRAP1",  threads=5, known_values=known_values)
