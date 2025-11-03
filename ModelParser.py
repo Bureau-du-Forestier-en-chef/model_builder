@@ -8,7 +8,6 @@ from FMT import (
 from pathlib import Path
 import shutil
 from Logger import Logging
-from contextlib import contextmanager
 
 class ModelParser:
 	def __init__(self, path: Path, scenarios: list[str], length: int):
@@ -24,14 +23,18 @@ class ModelParser:
 		self.lpmodel = self._doplanning(length)
 		self.threads: int = 1
 
-	def get_outputs_results(self, time: int, outputs: list[str]):
+	def get_outputs_results(self, time: int, outputs: list[str] | list[Core.FMToutput]) -> dict:
 		if time < 0 or time > self.length:
 			self.Logging.log_message("ERROR", f"Time {time} is out of bounds (0-{self.length})")
 			raise ValueError(f"Time must be between 0 and {self.length}")
 		results = {}
-		output_objects = self._get_outputs_objects(outputs)
+
+		if not isinstance(outputs[0], Core.FMToutput):
+			output_objects = self._get_outputs_objects(outputs)
+		else:
+			output_objects = outputs
 		for output in output_objects:
-			results[output.getname()] = self.lpmodel.getoutput(output, time, Core.FMToutputlevel.standard)
+			results[output.getname()] = self.lpmodel.getoutput(output, time, Core.FMToutputlevel.standard) # type: ignore
 
 		return results
 	
@@ -40,6 +43,13 @@ class ModelParser:
 		for output in self.lpmodel.getoutputs():
 			if output.getname() in outputs:	
 				output_objects.append(output)
+		
+		if len(output_objects) < 1:
+			msg = f"No output object found for these value {outputs}"
+			raise Exception(msg)
+		elif len(output_objects) != len(outputs):
+			Logging.log_message("WARNING", 
+				f"Outputs object not found for: {set(outputs) - set([i.getname() for i in output_objects])}")
 
 		return output_objects
 
@@ -446,8 +456,8 @@ class ModelParser:
 				
 				if iteration > 0:
 					for const in constraints_added:
-						constraints.remove(const)
-					strategic.setconstraints(constraints)
+						constraints.remove(const) #type: ignore
+					strategic.setconstraints(constraints) #type: ignore 
 
 				self.Logging.log_message("INFO", 
 						f"Best factor found for output {output} and key {key} is {best_factor:.2f}.")
@@ -465,7 +475,7 @@ class ModelParser:
 				output_list: list[str], 
 				workspace: str,
 				threads: int = 1, 
-				known_values: dict | None = None) -> tuple[dict, dict]:
+				known_values: dict | None = None) -> dict:
 		if len(self.models) < 3:
 			raise Exception("Models for strategic, stochastic and tactic are required")
 		
@@ -491,6 +501,8 @@ class ModelParser:
 			lpmodel.setparameter(Models.FMTintmodelparameters.LENGTH, self.length)
 			lpmodel.setparameter(Models.FMTboolmodelparameters.FORCE_PARTIAL_BUILD, True)
 			lp_constraints = lpmodel.getconstraints()
+			Logging.log_message("INFO", 
+				f"Nombre de contraites totale: {len(lp_constraints)}")
 			lp_constraints[0] = new_objective
 			lpmodel.setconstraints(lp_constraints)
 			lpmodel.doplanning(True)
@@ -539,29 +551,39 @@ class ModelParser:
 					final_values[output] = {key: {'value': value, 'factor': best_factor}}
 				else:
 					final_values[output][key] = {'value': value, 'factor': best_factor}
+		
+		self.Logging.log_message("INFO", 
+			f"Final results: {final_values}")
 	
-		return final_values, output_results
+		return final_values
 
 
 
 if __name__ == "__main__":
-	path = Path("C:\\Users\\Admlocal\\Documents\\issues\\C2_00985788\\CC_modele_feu\\WS_CC\\Feux_2023_ouest_V01.pri")
-	scenarios = ["strategique_CC", "stochastique_vide", "tactique_CC"]
+	path = Path("C:\\Users\\Admlocal\\Documents\\issues\\modele_vanille\\CC_modele_feu\\CC_V2\\Mod_cc_v2.pri")
+	scenarios = ["strategique_vanille", "stochastique_sans_feu", "tactique_vanille"]
 	model = ModelParser(path, scenarios, 20)
 
 	# OVOLGRREC, OVOLGFREC 
 
 	# Exemple de known_values à passer à find_max_value
 	known_values = {
-		"OVOLTOTREC": {
-			"08351": {"min": 1, "max": 1.01},
-			"08451": {"min": 0.75, "max": 0.76},
-			"08462": {"min": 0.8, "max": 0.81}
+		"OVOLTOTREC": {"09351": {"min": 0.86, "max": 0.87}
 		},
-		"OVOLGRREC": {
-			"08351": {"min": 0.5, "max": 1.01}
-		}
 	}
 
 	#test = model.find_max_value(["OVOLGRREC", "OVOLGFREC"], "C:/Users/Admlocal/Documents/SCRAP1", threads=5)
-	results = model.find_max_values_with_obj(["OVOLTOTREC", "OVOLGRREC", "OVOLGFREC"], "C:/Users/Admlocal/Documents/SCRAP1",  threads=5, known_values=known_values)
+	output_list = [
+		"OVOLTOTREC", 
+		"OSUPREALNET_ACT", 
+		"OSUPREALEPC", 
+		"OSUPREALREGAEDU_BR", 
+		"OSUPREALEC",
+		"OSUPREALEC_BR",
+		"OSUPREALPL",
+		"OSUPREALREG",
+		"OSUPREALPL_BR",
+		"OSUPPL_FEU_POSTRECUP",
+		]
+	
+	results = model.find_max_values_with_obj(output_list, "C:/Users/Admlocal/Documents/SCRAP1",  threads=5)

@@ -14,7 +14,8 @@ class ConstantCreator(ModelParser):
             "OSUPREGECO_HARTIF": "SupProdTIF"
             }
         self.output_path = self._get_file_path(".out")
-        self.output_dict = self._iter_output()
+        self.output_name_list = [i.upper() for i in self.output_name.keys()]
+        self.output_object = self._get_outputs_objects(self.output_name_list)
 
     def _iter_output(self):
         if self.output_path is None:
@@ -30,13 +31,22 @@ class ConstantCreator(ModelParser):
                 else:
                     for element in self.output_name.keys():
                         if element.upper() in line_splited[1].upper():
-                            output_name_split = line_splited[1].split("(")
-                            output_name.append(output_name_split[0])
+                            #output_name_split = line_splited[1].split("(")
+                            #output_name.append(output_name_split[0])
+                            output_name.append(line_splited[1])
         
         return output_name
     
+    def _get_outputs_objects(self, outputs: list[str]):
+        output_objects = [
+            output for output in self.lpmodel.getoutputs()
+            if any(name in output.getname() for name in outputs)
+        ]
+
+        return output_objects
+    
     def create_constant_file(self, output_path=None):
-        output_dict = self.get_outputs_results(0, self.output_dict)
+        output_dict = self.get_outputs_results(0, self.output_object)
 
         if output_path:
             base_path = Path(output_path)
@@ -71,6 +81,6 @@ class ConstantCreator(ModelParser):
 
 
 if __name__ == "__main__":
-    path = Path("T:\\Donnees\\02_Courant\\07_Outil_moyen_methode\\01_Entretien_developpement\\Interne\\FMT\\Entretien\\Modeles_test\\02661\\PC_9307_U02661_4_Vg2_2023_vRP1f.pri")
-    parser = ConstantCreator(path, ["14_Sc5_Determin_apsp"], 1)
+    path = Path("T:\\Donnees\\02_Courant\\07_Outil_moyen_methode\\01_Entretien_developpement\\Interne\\FMT\\Entretien\\Modeles_test\\CC_V2\\20251016\\Mod_cc_v2.pri")
+    parser = ConstantCreator(path, ["ROOT"], 1)
     parser.create_constant_file(output_path="C:/Users/Admlocal/Documents/SCRAP")
