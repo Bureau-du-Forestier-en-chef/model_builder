@@ -10,8 +10,8 @@ import shutil
 from Logger import Logging
 
 class ModelParser:
-	def __init__(self, path: Path, scenarios: list[str], length: int):
-		self.Logging = Logging(path.stem + ".log")
+	def __init__(self, path: Path, scenarios: list[str], length: int, logger_suffix: str | None = None):
+		self.Logging = Logging(f"{path.stem}{logger_suffix or ''}.log")
 		self.path = path
 		self.scenarios = scenarios
 		self.length = length
@@ -495,6 +495,7 @@ class ModelParser:
 				Core.FMTconstrainttype.FMTMAXMINobjective, 
 				output_object)
 			new_objective.setlength(1, self.length)
+			new_objective.setpenalties("-", ["_ALL"])
 
 			# On réajuste la valeur des outputs
 			lpmodel = Models.FMTlpmodel(self.models[0], Models.FMTsolverinterface.MOSEK)
@@ -557,24 +558,20 @@ class ModelParser:
 	
 		return final_values
 
-
-
 if __name__ == "__main__":
 	path = Path("C:\\Users\\Admlocal\\Documents\\issues\\modele_vanille\\CC_modele_feu\\CC_V2\\Mod_cc_v2.pri")
 	scenarios = ["strategique_vanille", "stochastique_sans_feu", "tactique_vanille"]
-	model = ModelParser(path, scenarios, 20)
+	model = ModelParser(path, scenarios, 20, logger_suffix="_original")
 
 	# OVOLGRREC, OVOLGFREC 
-
 	# Exemple de known_values à passer à find_max_value
 	known_values = {
 		"OVOLTOTREC": {"09351": {"min": 0.86, "max": 0.87}
 		},
 	}
 
-	#test = model.find_max_value(["OVOLGRREC", "OVOLGFREC"], "C:/Users/Admlocal/Documents/SCRAP1", threads=5)
 	output_list = [
-		"OVOLTOTREC", 
+		#"OVOLTOTREC", 
 		"OSUPREALNET_ACT", 
 		"OSUPREALEPC", 
 		"OSUPREALREGAEDU_BR", 

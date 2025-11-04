@@ -11,4 +11,4 @@ dependencies:
   - pip
   - pip:
     options: --force-reinstall
-      - https://github.com/Bureau-du-Forestier-en-chef/FMT/releases/download/v1.0.0/FMT-1.0.0-cp310-cp310-win_amd64.whl
+      - https://github.com/Bureau-du-Forestier-en-chef/FMT/releases/download/v1.0.0/FMT-1.0.1-cp310-cp310-win_amd64.whl
