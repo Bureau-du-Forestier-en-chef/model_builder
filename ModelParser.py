@@ -38,7 +38,7 @@ class ModelParser:
 
 		return results
 	
-	def _get_outputs_objects(self, outputs: list[str]):
+	def _get_outputs_objects(self, outputs: list[str]) -> list[Core.FMToutput]:
 		output_objects = []
 		for output in self.lpmodel.getoutputs():
 			if output.getname() in outputs:	
@@ -118,6 +118,23 @@ class ModelParser:
 			write_schedule)
 		
 		return replanning_task
+	
+	def _get_outputs_with_new_objective(self, 
+			output_objects: list[Core.FMToutput],
+			new_objective: Core.FMTconstraint) -> list[Core.FMToutput]:
+		lpmodel = Models.FMTlpmodel(self.models[0], Models.FMTsolverinterface.MOSEK)
+		lpmodel.setparameter(Models.FMTintmodelparameters.LENGTH, self.length)
+		lpmodel.setparameter(Models.FMTboolmodelparameters.FORCE_PARTIAL_BUILD, True)
+		lp_constraints = lpmodel.getconstraints()
+		Logging.log_message("INFO", 
+			f"Nombre de contraites totale: {len(lp_constraints)}")
+		lp_constraints[0] = new_objective
+		lpmodel.setconstraints(lp_constraints)
+		lpmodel.doplanning(True)
+		
+		new_output_to_acheive = lpmodel.getoutput(output_objects, 1, Core.FMToutputlevel.standard)
+
+		return new_output_to_acheive
 	
 	def _create_workspace_folder(self, base_path: str | Path):
 		base_folder = Path(base_path)
@@ -472,10 +489,10 @@ class ModelParser:
 	
 
 	def find_max_values_with_obj(self, 
-				output_list: list[str], 
-				workspace: str,
-				threads: int = 1, 
-				known_values: dict | None = None) -> dict:
+			output_list: list[str], 
+			workspace: str,
+			threads: int = 1, 
+			known_values: dict | None = None) -> dict:
 		if len(self.models) < 3:
 			raise Exception("Models for strategic, stochastic and tactic are required")
 		
@@ -497,25 +514,26 @@ class ModelParser:
 			new_objective.setlength(1, self.length)
 			new_objective.setpenalties("-", ["_ALL"])
 
-			# On réajuste la valeur des outputs
-			lpmodel = Models.FMTlpmodel(self.models[0], Models.FMTsolverinterface.MOSEK)
-			lpmodel.setparameter(Models.FMTintmodelparameters.LENGTH, self.length)
-			lpmodel.setparameter(Models.FMTboolmodelparameters.FORCE_PARTIAL_BUILD, True)
-			lp_constraints = lpmodel.getconstraints()
-			Logging.log_message("INFO", 
-				f"Nombre de contraites totale: {len(lp_constraints)}")
-			lp_constraints[0] = new_objective
-			lpmodel.setconstraints(lp_constraints)
-			lpmodel.doplanning(True)
-			
-			new_output_to_acheive = lpmodel.getoutput(output_object, 1, Core.FMToutputlevel.standard)
-
-			for key, value in new_output_to_acheive.items():
-				if key in ["NA", "Total"] or value == 0:
+			for key, result in output_results[output].items():
+				if key in ["NA", "Total"] or result == 0:
+					self.Logging.log_message("INFO", f"Skipping key {key} with value {result}.")
 					continue
-			
-				self.modelparser.redirectlogtofile(workspace + "/output.log")
 				strategic, stochastic, tactic = self.create_replanning_models()	
+				
+				for model in [strategic, stochastic, tactic]:
+					self._change_area(model, key)
+
+				# On réajuste la valeur des outputs
+				new_output_to_acheive = self._get_outputs_with_new_objective(
+					output_object,
+					new_objective
+				)
+				
+				value = new_output_to_acheive[key]
+				if value == 0:
+					continue
+
+				self.modelparser.redirectlogtofile(workspace + "/output.log")
 
 				self.Logging.log_message("INFO",
 					f"Setting new target value for output {output}. Difference of "
@@ -530,9 +548,6 @@ class ModelParser:
 
 				self.Logging.log_message("INFO", 
 						f"Finding max factor for target value {value} for key {key}.")
-
-				for model in [strategic, stochastic, tactic]:
-					self._change_area(model, key)
 
 				best_factor = self._find_factor(
 					strategic,
@@ -561,26 +576,23 @@ class ModelParser:
 if __name__ == "__main__":
 	path = Path("C:\\Users\\Admlocal\\Documents\\issues\\modele_vanille\\CC_modele_feu\\CC_V2\\Mod_cc_v2.pri")
 	scenarios = ["strategique_vanille", "stochastique_sans_feu", "tactique_vanille"]
-	model = ModelParser(path, scenarios, 20, logger_suffix="_original")
+	model = ModelParser(path, scenarios, 20)
+
 
 	# OVOLGRREC, OVOLGFREC 
 	# Exemple de known_values à passer à find_max_value
 	known_values = {
-		"OVOLTOTREC": {"09351": {"min": 0.86, "max": 0.87}
+		"OVOLTOTREC": {
+			"09351": {"min": 0.99, "max": 1.01},
+			"09352": {"min": 0.99, "max": 1.01},
+			"09471": {"min": 0.99, "max": 1.01},
+			"09551": {"min": 0.99, "max": 1.01},
+			"09751": {"min": 0.99, "max": 1.01},
 		},
 	}
 
 	output_list = [
-		#"OVOLTOTREC", 
-		"OSUPREALNET_ACT", 
-		"OSUPREALEPC", 
-		"OSUPREALREGAEDU_BR", 
-		"OSUPREALEC",
-		"OSUPREALEC_BR",
-		"OSUPREALPL",
-		"OSUPREALREG",
-		"OSUPREALPL_BR",
-		"OSUPPL_FEU_POSTRECUP",
+		"OVOLTOTREC"
 		]
 	
-	results = model.find_max_values_with_obj(output_list, "C:/Users/Admlocal/Documents/SCRAP1",  threads=5)
+	results = model.find_max_values_with_obj(output_list, "C:/Users/Admlocal/Documents/SCRAP1", threads=5)
