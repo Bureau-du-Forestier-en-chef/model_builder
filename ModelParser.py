@@ -126,7 +126,6 @@ class ModelParser:
 			new_objective: Core.FMTconstraint) -> list[Core.FMToutput]:
 		lpmodel = Models.FMTlpmodel(self.models[0], Models.FMTsolverinterface.MOSEK)
 		lpmodel.setparameter(Models.FMTintmodelparameters.LENGTH, self.length)
-		lpmodel.setparameter(Models.FMTboolmodelparameters.FORCE_PARTIAL_BUILD, True)
 		lp_constraints = lpmodel.getconstraints()
 		Logging.log_message("INFO", 
 			f"Nombre de contraites totale: {len(lp_constraints)}")
