@@ -70,8 +70,10 @@ class ModelParser:
 
 		lpmodel = Models.FMTlpmodel(self.models[0], Models.FMTsolverinterface.MOSEK) # CLP ou MOSEK
 		lpmodel.setparameter(Models.FMTintmodelparameters.LENGTH, length)
-		lpmodel.setparameter(Models.FMTboolmodelparameters.FORCE_PARTIAL_BUILD, True)
-		lpmodel.doplanning(True)
+		# Si on veut faire du playback
+		#lpmodel.setparameter(Models.FMTboolmodelparameters.FORCE_PARTIAL_BUILD, True)
+		if not lpmodel.doplanning(True):
+			self.Logging.log_message("ERROR", "Doplanning failed")
 		
 		return lpmodel
 
@@ -375,11 +377,13 @@ class ModelParser:
 	
 	def _change_area(self, model, key: str):
 		area_to_keep = []
+		total = 0
 		for area in model.getarea():
 			if key in str(area):
 				area_to_keep.append(area)
+				total += area.getarea()
 		self.Logging.log_message("INFO", 
-			f"Keeping {len(area_to_keep)} / {len(model.getarea())} area for key {key}.")
+			f"Keeping {len(area_to_keep)} / {len(model.getarea())} area for key {key} for a total of {total}.")
 		model.setarea(area_to_keep)
 
 	def _get_constraints_values_in_dict(self,
@@ -575,19 +579,18 @@ class ModelParser:
 
 if __name__ == "__main__":
 	path = Path("C:\\Users\\Admlocal\\Documents\\issues\\modele_vanille\\CC_modele_feu\\CC_V2\\Mod_cc_v2.pri")
-	scenarios = ["strategique_vanille", "stochastique_sans_feu", "tactique_vanille"]
-	model = ModelParser(path, scenarios, 20)
-
+	scenarios = ["strategique_vanille_COS", "stochastique_vanille_COS", "tactique_vanille_COS"]
+	model = ModelParser(path, scenarios, 20, logger_suffix="_COS")
 
 	# OVOLGRREC, OVOLGFREC 
 	# Exemple de known_values à passer à find_max_value
 	known_values = {
 		"OVOLTOTREC": {
-			"09351": {"min": 0.99, "max": 1.01},
-			"09352": {"min": 0.99, "max": 1.01},
-			"09471": {"min": 0.99, "max": 1.01},
-			"09551": {"min": 0.99, "max": 1.01},
-			"09751": {"min": 0.99, "max": 1.01},
+			"09351": {"min": 0.78, "max": 0.79},
+			"09352": {"min": 0.25, "max": 0.26},
+			"09471": {"min": 0.25, "max": 0.26},
+			"09551": {"min": 0.00, "max": 1.01},
+			"09751": {"min": 0.97, "max": 1.01},
 		},
 	}
 
