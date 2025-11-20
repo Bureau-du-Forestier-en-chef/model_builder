@@ -527,6 +527,11 @@ class ModelParser:
 				for model in [strategic, stochastic, tactic]:
 					self._change_area(model, key)
 
+				# On ajoute la nouvelle fonction objective au modèle stratégique
+				constraints = strategic.getconstraints()
+				constraints[0] = new_objective
+				strategic.setconstraints(constraints)
+
 				# On réajuste la valeur des outputs
 				new_output_to_acheive = self._get_outputs_with_new_objective(
 					output_object,
@@ -544,11 +549,6 @@ class ModelParser:
 					f"{output_results[output][key] - new_output_to_acheive[key]} "	
 					f"based on previous iteration results.")		
 				output_results[output] = new_output_to_acheive
-
-				# On ajoute la nouvelle fonction objective au modèle stratégique
-				constraints = strategic.getconstraints()
-				constraints[0] = new_objective
-				strategic.setconstraints(constraints)
 
 				self.Logging.log_message("INFO", 
 						f"Finding max factor for target value {value} for key {key}.")
@@ -579,7 +579,7 @@ class ModelParser:
 
 if __name__ == "__main__":
 	path = Path("C:\\Users\\Admlocal\\Documents\\issues\\modele_vanille\\CC_modele_feu\\CC_V2\\Mod_cc_v2.pri")
-	scenarios = ["strategique_vanille_COS", "stochastique_vanille_COS", "tactique_vanille_COS"]
+	scenarios = ["strategique_vanille_COS", "stochastique_SansFeuTBE_COS", "tactique_vanille_COS"]
 	model = ModelParser(path, scenarios, 20, logger_suffix="_COS")
 
 	# OVOLGRREC, OVOLGFREC 
