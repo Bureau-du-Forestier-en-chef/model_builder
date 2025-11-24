@@ -441,7 +441,6 @@ class ModelParser:
 					# On réajuste la valeur des outputs
 					lpmodel = Models.FMTlpmodel(self.models[0], Models.FMTsolverinterface.MOSEK)
 					lpmodel.setparameter(Models.FMTintmodelparameters.LENGTH, self.length)
-					lpmodel.setparameter(Models.FMTboolmodelparameters.FORCE_PARTIAL_BUILD, True)
 					
 					constraints = lpmodel.getconstraints()
 					constraints.extend(constraints_added) 
@@ -517,6 +516,13 @@ class ModelParser:
 			new_objective.setlength(1, self.length)
 			new_objective.setpenalties("-", ["_ALL"])
 
+			new_tactic_objective = Core.FMTconstraint(
+				Core.FMTconstrainttype.FMTMAXMINobjective, 
+				output_object)
+			new_tactic_objective.setlength(1, self.length)
+			new_tactic_objective.setpenalties("-", ["_ALL"])
+			new_tactic_objective.addbounds(Core.FMTyldbounds(Core.FMTsection.Optimize, "_SETGLOBALSCHEDULE", 100, 100))
+
 			for key, result in output_results[output].items():
 				if key in ["NA", "Total"] or result == 0:
 					self.Logging.log_message("INFO", f"Skipping key {key} with value {result}.")
@@ -530,6 +536,10 @@ class ModelParser:
 				constraints = strategic.getconstraints()
 				constraints[0] = new_objective
 				strategic.setconstraints(constraints)
+
+				tactics_constraints = tactic.getconstraints()
+				tactics_constraints[0] = new_tactic_objective
+				tactic.setconstraints(tactics_constraints)
 
 				# On réajuste la valeur des outputs
 				new_output_to_acheive = self._get_outputs_with_new_objective(
@@ -578,8 +588,8 @@ class ModelParser:
 
 if __name__ == "__main__":
 	path = Path("C:\\Users\\Admlocal\\Documents\\issues\\modele_vanille\\CC_modele_feu\\CC_V2\\Mod_cc_v2.pri")
-	scenarios = ["strategique_vanille_COS", "stochastique_SansFeuTBE_COS", "tactique_vanille_COS"]
-	model = ModelParser(path, scenarios, 20, logger_suffix="_COS")
+	scenarios = ["strategique_vanille", "stochastique_SansFeuTBE", "tactique_vanille"]
+	model = ModelParser(path, scenarios, 20, logger_suffix="_sansCOS")
 
 	# OVOLGRREC, OVOLGFREC 
 	# Exemple de known_values à passer à find_max_value
@@ -594,7 +604,12 @@ if __name__ == "__main__":
 	}
 
 	output_list = [
+		"OVOLGSEPMREC",
 		"OVOLTOTREC"
 		]
 	
 	results = model.find_max_values_with_obj(output_list, "C:/Users/Admlocal/Documents/SCRAP1", threads=5)
+	for key, value in results.items():
+		print(f"{key}")
+		for k2, v2 in value.items():
+			print(f"{k2} : {(v2['value'] * v2['factor'])/5}")
