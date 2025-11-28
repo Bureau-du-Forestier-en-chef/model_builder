@@ -37,13 +37,13 @@ class ModelParser:
 			results[output.getname()] = self.lpmodel.getoutput(output, time, Core.FMToutputlevel.standard) # type: ignore
 
 		return results
-	
+
 	def _get_outputs_objects(self, outputs: list[str]) -> list[Core.FMToutput]:
 		output_objects = []
 		for output in self.lpmodel.getoutputs():
 			if output.getname() in outputs:	
 				output_objects.append(output)
-		
+
 		if len(output_objects) < 1:
 			msg = f"No output object found for these value {outputs}"
 			raise Exception(msg)
@@ -62,7 +62,7 @@ class ModelParser:
 			FMTexception.FMTexc.FMToutput_missing_operator,
 			FMTexception.FMTexc.FMTinvalidyield_number,
 			FMTexception.FMTexc.FMTundefinedoutput_attribute])
-	
+
 	def _doplanning(self, length: int) -> Models.FMTlpmodel:
 		if length < 1:
 			self.Logging.log_message("ERROR", "Length must be greater than 1")
@@ -74,19 +74,19 @@ class ModelParser:
 		#lpmodel.setparameter(Models.FMTboolmodelparameters.FORCE_PARTIAL_BUILD, True)
 		if not lpmodel.doplanning(True):
 			self.Logging.log_message("ERROR", "Doplanning failed")
-		
+
 		return lpmodel
 
 	def _get_file_path(self, ext: str):
 		for file in self.path.parent.iterdir():
 			if file.suffix == ext:
 				return file
-	
+
 	def create_replanning_models(self) -> tuple[Models.FMTlpmodel, Models.FMTnssmodel, Models.FMTlpmodel]:
 		if len(self.models) < 3:
 			self.Logging.log_message("ERROR", "3 Models are required for replanning")
 			raise Exception("3 Models are required for replanning")
-		
+
 		strategic = Models.FMTlpmodel(self.models[0], Models.FMTsolverinterface.MOSEK)
 		stochastic = Models.FMTnssmodel(self.models[1], 0)
 		tactic = Models.FMTlpmodel(self.models[2], Models.FMTsolverinterface.MOSEK)
@@ -118,9 +118,9 @@ class ModelParser:
 			drift, 
 			output_level,
 			write_schedule)
-		
+
 		return replanning_task
-	
+
 	def _get_outputs_with_new_objective(self, 
 			output_objects: list[Core.FMToutput],
 			new_objective: Core.FMTconstraint) -> list[Core.FMToutput]:
@@ -497,27 +497,27 @@ class ModelParser:
 			known_values: dict | None = None) -> dict:
 		if len(self.models) < 3:
 			raise Exception("Models for strategic, stochastic and tactic are required")
-		
+
 		self._clear_folder(workspace)
 
 		output_results = self.get_outputs_results(1, output_list)
-		
+
 		final_values = {}
 
 		for output in output_list:
 			self.Logging.log_message("INFO",  f"Iterating over {output}")
 			self.modelparser.redirectlogtofile(workspace + "/output.log")
 			output_object = self._get_outputs_objects([output])[0]
-			
+
 			# Nouvelle fonction objective
 			new_objective = Core.FMTconstraint(
-				Core.FMTconstrainttype.FMTMAXMINobjective, 
+				Core.FMTconstrainttype.FMTMAXMINobjective,
 				output_object)
 			new_objective.setlength(1, self.length)
 			new_objective.setpenalties("-", ["_ALL"])
 
 			new_tactic_objective = Core.FMTconstraint(
-				Core.FMTconstrainttype.FMTMAXMINobjective, 
+				Core.FMTconstrainttype.FMTMAXMINobjective,
 				output_object)
 			new_tactic_objective.setlength(1, self.length)
 			new_tactic_objective.setpenalties("-", ["_ALL"])
@@ -527,8 +527,8 @@ class ModelParser:
 				if key in ["NA", "Total"] or result == 0:
 					self.Logging.log_message("INFO", f"Skipping key {key} with value {result}.")
 					continue
-				strategic, stochastic, tactic = self.create_replanning_models()	
-				
+				strategic, stochastic, tactic = self.create_replanning_models()
+
 				for model in [strategic, stochastic, tactic]:
 					self._change_area(model, key)
 
@@ -546,7 +546,7 @@ class ModelParser:
 					output_object,
 					new_objective
 				)
-				
+
 				value = new_output_to_acheive[key]
 				if value == 0:
 					continue
@@ -559,7 +559,7 @@ class ModelParser:
 					f"based on previous iteration results.")		
 				output_results[output] = new_output_to_acheive
 
-				self.Logging.log_message("INFO", 
+				self.Logging.log_message("INFO",
 						f"Finding max factor for target value {value} for key {key}.")
 
 				best_factor = self._find_factor(
@@ -573,43 +573,48 @@ class ModelParser:
 					threads, 
 					known_values)
 
-				self.Logging.log_message("INFO", 
+				self.Logging.log_message("INFO",
 						f"Best factor found for output {output} and key {key} is {best_factor:.2f}.")
 
 				if output not in final_values:
 					final_values[output] = {key: {'value': value, 'factor': best_factor}}
 				else:
 					final_values[output][key] = {'value': value, 'factor': best_factor}
-		
-		self.Logging.log_message("INFO", 
+
+		self.Logging.log_message("INFO",
 			f"Final results: {final_values}")
-	
+
 		return final_values
+	
+	def print_annual_result(self, final_values: dict):
+		"""Print the annual results from the final values dictionary."""
+		for key, v in final_values.items():
+			self.Logging.log_message("INFO", f"{key}")
+			for k2, v2 in v.items():
+				self.Logging.log_message('INFO', f"{k2} : {round((v2['value'] * v2['factor'])/5), 0}")
+
 
 if __name__ == "__main__":
 	path = Path("C:\\Users\\Admlocal\\Documents\\issues\\modele_vanille\\CC_modele_feu\\CC_V2\\Mod_cc_v2.pri")
-	scenarios = ["strategique_vanille", "stochastique_SansFeuTBE", "tactique_vanille"]
-	model = ModelParser(path, scenarios, 20, logger_suffix="_sansCOS")
+	scenarios = ["strategique_vanille_COS", "stochastique_Histo_Vide_COS", "tactique_vanille_COS"]
+	model_parsed = ModelParser(path, scenarios, 20, logger_suffix="_COS")
 
-	# OVOLGRREC, OVOLGFREC 
+	# OVOLGRREC, OVOLGFREC
 	# Exemple de known_values à passer à find_max_value
 	known_values = {
 		"OVOLTOTREC": {
-			"09351": {"min": 0.78, "max": 0.79},
-			"09352": {"min": 0.25, "max": 0.26},
-			"09471": {"min": 0.25, "max": 0.26},
-			"09551": {"min": 0.00, "max": 1.01},
-			"09751": {"min": 0.97, "max": 1.01},
+			"09351": {"min": 1.00, "max": 1.01},
+			"09352": {"min": 1.00, "max": 1.01},
+			"09471": {"min": 1.00, "max": 1.01},
+			"09551": {"min": 0.70, "max": 0.80},
+			"09751": {"min": 1.00, "max": 1.01},
 		},
 	}
 
 	output_list = [
-		"OVOLGSEPMREC",
-		"OVOLTOTREC"
+		"OVOLTOTREC",
+		"OVOLGSEPMREC"
 		]
-	
-	results = model.find_max_values_with_obj(output_list, "C:/Users/Admlocal/Documents/SCRAP1", threads=5)
-	for key, value in results.items():
-		print(f"{key}")
-		for k2, v2 in value.items():
-			print(f"{k2} : {(v2['value'] * v2['factor'])/5}")
+
+	iteration_results = model_parsed.find_max_values_with_obj(output_list, "C:/Users/Admlocal/Documents/SCRAP1", threads=5)
+	model_parsed.print_annual_result(iteration_results)
