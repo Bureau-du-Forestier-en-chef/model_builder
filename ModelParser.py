@@ -340,7 +340,8 @@ class ModelParser:
 	def find_max_value(self, 
 			output_list: list[str],
 			workspace: str, 
-			threads: int = 1, 
+			threads: int=1, 
+			replicates: int=1,
 			known_values: dict | None = None) -> dict:
 		if len(self.models) < 3:
 			raise Exception("Models for strategic, stochastic and tactic are required")
@@ -370,6 +371,7 @@ class ModelParser:
 					value,
 					Path(workspace),
 					threads, 
+					replicates,
 					known_values)
 				
 				self.Logging.log_message("INFO", 
@@ -408,8 +410,10 @@ class ModelParser:
 	def find_combined_max_values(self, 
 			output_list: list[str], 
 			workspace: str,
-			threads: int = 1, 
+			threads: int=1,
+			replicates: int=1, 
 			known_values: dict | None = None) -> tuple[dict, dict]:
+		"""Old pour combiner"""
 		if len(self.models) < 3:
 			raise Exception("Models for strategic, stochastic and tactic are required")
 		
@@ -480,6 +484,7 @@ class ModelParser:
 					value,
 					Path(workspace),
 					threads, 
+					replicates,
 					known_values)
 				
 				if iteration > 0:
@@ -505,6 +510,18 @@ class ModelParser:
 			threads: int = 1, 
 			replicates: int = 1,
 			known_values: dict | None = None) -> dict:
+		"""Fonction la plus à jour pour trouver les valeurs max des outputs
+
+		Args:
+			output_list (list[str]): _liste des outputs à analyser_
+			workspace (str): _chemin du dossier de travail_
+			threads (int, optional): _nombre de threads pour le replanning_. Defaults to 1.
+			replicates (int, optional): _nombre de réplicas pour le replanning_. Defaults to 1.
+			known_values (dict | None, optional): _les intervalles de facteurs qui seraient déjà connues_. Defaults to None.
+
+		Returns:
+			dict: _dictionnaire des valeurs recherchées et avec le facteur maximal. On doit multiplier le facteur à la valeur_
+		"""
 		if len(self.models) < 3:
 			raise Exception("Models for strategic, stochastic and tactic are required")
 
