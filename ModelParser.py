@@ -551,11 +551,14 @@ class ModelParser:
 			new_tactic_objective.addbounds(Core.FMTyldbounds(Core.FMTsection.Optimize, "_SETGLOBALSCHEDULE", 100, 100))
 
 			for key, result in output_results[output].items():
-				if known_values and known_values[output][key]['max'] - known_values[output][key]['min'] <= 0.01:
-					self.Logging.log_message("INFO", 
-						f"Skipping key {key} for output {output} due to known values "
-						f"min {known_values[output][key]['min']} and max {known_values[output][key]['max']}.")
-					continue
+				if known_values:
+					kv_output = known_values.get(output, {})
+					kv_key = kv_output.get(key)
+					if kv_key and round(kv_key['max'] - kv_key['min'], 2) <= 0.01:
+						self.Logging.log_message("INFO", 
+							f"Skipping key {key} for output {output} due to known values "
+							f"min {known_values[output][key]['min']} and max {known_values[output][key]['max']}.")
+						continue
 				if key in ["NA", "Total"] or result == 0:
 					self.Logging.log_message("INFO", f"Skipping key {key} with value {result}.")
 					continue
@@ -630,7 +633,7 @@ class ModelParser:
 if __name__ == "__main__":
 	path = Path("C:\\Users\\Admlocal\\Documents\\issues\\modele_vanille\\CC_modele_feu\\CC_V2\\Mod_cc_v2.pri")
 	scenarios = ["strategique_vanille_COS", "stochastique_Histo_Vide_COS", "tactique_vanille_COS"]
-	model_parsed = ModelParser(path, scenarios, 30, logger_suffix="_COS")
+	model_parsed = ModelParser(path, scenarios, 1, logger_suffix="_COS")
 
 	# OVOLGRREC, OVOLGFREC
 	# Exemple de known_values à passer à find_max_value
