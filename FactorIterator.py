@@ -1,3 +1,4 @@
+"""
 class FactorIterator():
     def __init__(self):
         pass
@@ -167,3 +168,4 @@ class FactorIterator():
 					final_values[output][key] = best_factor
 	
 		return final_values	
+"""

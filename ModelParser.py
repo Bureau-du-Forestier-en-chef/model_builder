@@ -214,31 +214,40 @@ class ModelParser:
 			except Exception as e:
 				raise e
 	
-	def _inspect_csv(self, output_name: str, id_type: str, value: float, field_path: str | Path) -> tuple[bool, str]:
+	def _inspect_csv(self, output_name: str, id_type: str, value: float, field_path: str | Path, replicates: int) -> bool:
 		field_file = Path(field_path) / f"{self.scenarios[2]}.csv"
 		is_valid = True
-		TOLERANCE = 1
-		msg = "Output value meets the required threshold at this time."
-		max_period = 0
-		
+		tolerance = 0.9
+		failed_count = 0
+		max_failures = int(replicates - replicates * tolerance)
+		replicate_id = 1
+
 		if not field_file.exists():
 			raise FileNotFoundError(f"Field file not found: {field_file}")
 
 		for line in field_file.read_text().splitlines():
 			line_splited = line.strip().split(";")
+			if line_splited[0] != str(replicate_id):
+				continue
 			if line_splited[2] == output_name and line_splited[3].strip('"') == id_type:
-				max_period = max(max_period, int(line_splited[1]))
-				# J'ai ajouté +1 pour éviter les problèmes d'arrondi flottant
-				if float(line_splited[-1]) + TOLERANCE < value and is_valid:
-					is_valid = False
-					msg = (f"Output {output_name} for id {id_type} has value {line_splited[-1]}, "
-							f"which is less than the required value {value}. "
-							f"At period {line_splited[1]} / ")
-		
-		if not is_valid:
-			msg += f"{max_period}"
+				if float(line_splited[-1]) + 1 < value:
+					failed_count += 1
+					replicate_id += 1
+					self.Logging.log_message("ERROR", 
+						(f"Output {output_name} for id {id_type} has value {line_splited[-1]}, "
+						f"which is less than the required value {value}. Iteration: {line_splited[0]} "
+						f"At period {line_splited[1]} / {self.length}"))
+					
+					if failed_count > max_failures:
+						is_valid = False
+						break
+
+		if is_valid:
+			self.Logging.log_message("INFO", 
+				(f"Output {output_name} for id {id_type} met the required value {value} "
+				f"with {replicates - failed_count} successful iterations out of {replicates}."))
 				 
-		return is_valid, msg
+		return is_valid
 	
 	def _find_factor(self, 
 			strategic: Models.FMTlpmodel,
@@ -249,6 +258,7 @@ class ModelParser:
 			value: float,
 			workspace: Path,
 			threads: int = 1,
+			replicates: int = 1,
 			known_values: dict | None = None) -> float:
 		
 		factor_min = 0
@@ -291,7 +301,7 @@ class ModelParser:
 					[output],
 					workspace_id,
 					length=self.length,
-					replicates=1,
+					replicates=replicates,
 					threads=threads)
 				
 			except RuntimeError as e:
@@ -305,10 +315,9 @@ class ModelParser:
 					raise e
 
 			else:
-				is_valid, msg = self._inspect_csv(output, key, value * factor_tested, workspace_id / "output")
-				if not is_valid and msg:
+				is_valid = self._inspect_csv(output, key, value * factor_tested, workspace_id / "output", replicates)
+				if not is_valid:
 					factor_max = factor_tested * 100
-					self.Logging.log_message("INFO", msg)
 				else:
 					factor_min = factor_tested * 100
 					self.Logging.log_message("INFO", 
@@ -494,6 +503,7 @@ class ModelParser:
 			output_list: list[str], 
 			workspace: str,
 			threads: int = 1, 
+			replicates: int = 1,
 			known_values: dict | None = None) -> dict:
 		if len(self.models) < 3:
 			raise Exception("Models for strategic, stochastic and tactic are required")
@@ -524,6 +534,11 @@ class ModelParser:
 			new_tactic_objective.addbounds(Core.FMTyldbounds(Core.FMTsection.Optimize, "_SETGLOBALSCHEDULE", 100, 100))
 
 			for key, result in output_results[output].items():
+				if known_values and known_values[output][key]['max'] - known_values[output][key]['min'] <= 0.01:
+					self.Logging.log_message("INFO", 
+						f"Skipping key {key} for output {output} due to known values "
+						f"min {known_values[output][key]['min']} and max {known_values[output][key]['max']}.")
+					continue
 				if key in ["NA", "Total"] or result == 0:
 					self.Logging.log_message("INFO", f"Skipping key {key} with value {result}.")
 					continue
@@ -570,7 +585,8 @@ class ModelParser:
 					key,
 					value,
 					Path(workspace),
-					threads, 
+					threads,
+					replicates,
 					known_values)
 
 				self.Logging.log_message("INFO",
@@ -591,30 +607,30 @@ class ModelParser:
 		for key, v in final_values.items():
 			self.Logging.log_message("INFO", f"{key}")
 			for k2, v2 in v.items():
-				self.Logging.log_message('INFO', f"{k2} : {round((v2['value'] * v2['factor'])/5), 0}")
+				self.Logging.log_message('INFO', f"{k2} : {round((v2['value'] * v2['factor'])/5, 0)}")
 
 
 if __name__ == "__main__":
 	path = Path("C:\\Users\\Admlocal\\Documents\\issues\\modele_vanille\\CC_modele_feu\\CC_V2\\Mod_cc_v2.pri")
 	scenarios = ["strategique_vanille_COS", "stochastique_Histo_Vide_COS", "tactique_vanille_COS"]
-	model_parsed = ModelParser(path, scenarios, 20, logger_suffix="_COS")
+	model_parsed = ModelParser(path, scenarios, 30, logger_suffix="_COS")
 
 	# OVOLGRREC, OVOLGFREC
 	# Exemple de known_values à passer à find_max_value
-	known_values = {
+	known_interval = {
 		"OVOLTOTREC": {
 			"09351": {"min": 1.00, "max": 1.01},
 			"09352": {"min": 1.00, "max": 1.01},
 			"09471": {"min": 1.00, "max": 1.01},
-			"09551": {"min": 0.70, "max": 0.80},
+			"09551": {"min": 0.00, "max": 1.01},
 			"09751": {"min": 1.00, "max": 1.01},
 		},
 	}
 
-	output_list = [
+	outputs_list = [
 		"OVOLTOTREC",
 		"OVOLGSEPMREC"
 		]
 
-	iteration_results = model_parsed.find_max_values_with_obj(output_list, "C:/Users/Admlocal/Documents/SCRAP1", threads=5)
+	iteration_results = model_parsed.find_max_values_with_obj(outputs_list, "C:/Users/Admlocal/Documents/SCRAP/9551", threads=5, replicates=1, known_values=known_interval)
 	model_parsed.print_annual_result(iteration_results)
