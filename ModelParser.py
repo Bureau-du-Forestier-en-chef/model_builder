@@ -633,7 +633,7 @@ class ModelParser:
 if __name__ == "__main__":
 	path = Path("C:\\Users\\Admlocal\\Documents\\issues\\modele_vanille\\CC_modele_feu\\CC_V2\\Mod_cc_v2.pri")
 	scenarios = ["strategique_vanille_COS", "stochastique_Histo_Vide_COS", "tactique_vanille_COS"]
-	model_parsed = ModelParser(path, scenarios, 1, logger_suffix="_COS")
+	model_parsed = ModelParser(path, scenarios, 20, logger_suffix="_COS")
 
 	# OVOLGRREC, OVOLGFREC
 	# Exemple de known_values à passer à find_max_value
